@@ -1,0 +1,3 @@
+[submodule "external/mormot2-ai"]
+	path = external/mormot2-ai
+	url = https://github.com/landrix/mormot2-ai.git

@@ -1,0 +1,23 @@
+# build outputs
+bin/
+build/
+*.dcu
+*.exe
+*.rsm
+*.map
+*.tds
+*.res
+*.log
+
+# IDE files
+__history/
+__recovery/
+*.local
+*.identcache
+*.dsk
+*.stat
+*.dproj.local
+
+# PyTorch references of tools/tts/qwen_ref.py (large)
+ref/
+__pycache__/
