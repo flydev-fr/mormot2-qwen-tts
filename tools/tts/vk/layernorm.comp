@@ -1,0 +1,58 @@
+// mormot2-qwen-tts - row LayerNorm of the ConvNeXt block of the 12 Hz
+// Qwen3-TTS decoder: y = (x - mean) / sqrt(variance + eps) * g + b, population
+// variance (as torch.nn.LayerNorm); y may be x
+// - a group of 256 per row: the mean, then the variance around it
+#version 450
+
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) buffer BufX { float x[]; };
+layout(std430, binding = 1) readonly buffer BufG { float g[]; };
+layout(std430, binding = 2) readonly buffer BufB { float b[]; };
+layout(std430, binding = 3) buffer BufY { float y[]; };
+
+layout(push_constant) uniform Push {
+  uint rows, cols, xOff, yOff;
+  float eps;
+} p;
+
+shared float partial[256];
+
+float total(float v)
+{
+  uint t = gl_LocalInvocationID.x;
+  partial[t] = v;
+  barrier();
+  for (uint w = 128u; w > 0u; w >>= 1)
+  {
+    if (t < w)
+      partial[t] += partial[t + w];
+    barrier();
+  }
+  float s = partial[0];
+  barrier(); // before the next reduction
+  return s;
+}
+
+void main()
+{
+  uint t = gl_LocalInvocationID.x;
+  uint r = gl_WorkGroupID.x;
+  if (r >= p.rows)
+    return;
+  uint xi = p.xOff + r * p.cols;
+  uint yi = p.yOff + r * p.cols;
+  float s = 0.0;
+  for (uint c = t; c < p.cols; c += 256u)
+    s += x[xi + c];
+  float mean = total(s) / float(p.cols);
+  s = 0.0;
+  for (uint c = t; c < p.cols; c += 256u)
+  {
+    float d = x[xi + c] - mean;
+    s += d * d;
+  }
+  float inv = inversesqrt(total(s) / float(p.cols) + p.eps);
+  for (uint c = t; c < p.cols; c += 256u)
+    y[yi + c] = (x[xi + c] - mean) * inv * g[c] + b[c];
+}

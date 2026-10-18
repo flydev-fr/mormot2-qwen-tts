@@ -1,0 +1,128 @@
+// mormot2-qwen-tts - causal 1D convolution as a matrix product, for the 12 Hz
+// decoder of Qwen3-TTS (mormot.ai.tts.qwen.codec.vulkan)
+// y[r, o] = bias[o] + sum_k sum_c w[o, k * cin + c] * x[r + k * dil, c]
+// - x: the rows [history ; new rows], time steps as rows, channels as
+//   columns; output row r reads rows r, r + dil, ..., i.e. the im2col done on
+//   the fly (nin = taps * cin, weights laid out [o][k][c])
+// - a transposed convolution (stride s, taps = kernel / s) goes through too:
+//   nout = s * Cout, its output [r][j * Cout + o] already is row r * s + j
+// - the end of the computation, by flags: 1 exact GELU, 2 residual (r + v),
+//   4 residual scaled per channel (r + scale[o] * v), 8 clamp to -1..1
+// - the tiling of gemm8.comp of mormot2-ai: a group of 256 computes 64 rows
+//   x 64 outputs, by steps of 32 inputs in shared memory; each output sums
+//   its inputs in the same order whatever the number of rows
+// - cin and nin multiples of 32, the offsets multiples of 4
+#version 450
+
+#define TM 64
+#define TN 64
+#define TK 32
+
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) readonly buffer BufW { vec4 w[]; };
+layout(std430, binding = 1) readonly buffer BufX { vec4 x[]; };
+layout(std430, binding = 2) readonly buffer BufB { float bias[]; };
+layout(std430, binding = 3) buffer BufY { float y[]; };
+layout(std430, binding = 4) buffer BufR { float res[]; };
+layout(std430, binding = 5) readonly buffer BufS { float scale[]; };
+
+layout(push_constant) uniform Push {
+  uint rows, nin, nout, cin, dil, xOff, yOff, yStride, rOff, flags;
+} p;
+
+shared vec4 xs[TK * (TM / 4)];
+shared vec4 ws[TK * (TN / 4)];
+
+// erf of Abramowitz and Stegun 7.1.26: absolute error below 1.5e-7
+float erfApprox(float v)
+{
+  float a = abs(v);
+  float t = 1.0 / (1.0 + 0.3275911 * a);
+  float poly = t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 +
+    t * (-1.453152027 + t * 1.061405429))));
+  float e = 1.0 - poly * exp(-a * a);
+  return v < 0.0 ? -e : e;
+}
+
+void main()
+{
+  uint t = gl_LocalInvocationID.x;
+  uint r0 = gl_WorkGroupID.y * TM;
+  uint o0 = gl_WorkGroupID.x * TN;
+  // load: invocation t reads 8 inputs of row / output t / 4
+  uint ls = t >> 2;
+  uint lk = (t & 3u) * 8u;
+  // compute: outputs 4 tx .. 4 tx + 3 of rows 4 ty .. 4 ty + 3
+  uint tx = t & 15u;
+  uint ty = t >> 4;
+  vec4 acc[4];
+  for (uint i = 0u; i < 4u; i++)
+    acc[i] = vec4(0.0);
+  for (uint k0 = 0u; k0 < p.nin; k0 += TK)
+  {
+    // a step of 32 inputs stays within one tap: cin is a multiple of 32
+    uint tap = k0 / p.cin;
+    uint c0 = k0 - tap * p.cin + lk;
+    uint r = r0 + ls;
+    vec4 xa = vec4(0.0);
+    vec4 xb = vec4(0.0);
+    if (r < p.rows)
+    {
+      uint xi = (p.xOff + (r + tap * p.dil) * p.cin + c0) >> 2;
+      xa = x[xi];
+      xb = x[xi + 1u];
+    }
+    uint o = o0 + ls;
+    vec4 wa = vec4(0.0);
+    vec4 wb = vec4(0.0);
+    if (o < p.nout)
+    {
+      uint wi = (o * p.nin + k0 + lk) >> 2;
+      wa = w[wi];
+      wb = w[wi + 1u];
+    }
+    uint j = ls >> 2;
+    uint c = ls & 3u;
+    float xv[8] = float[8](xa.x, xa.y, xa.z, xa.w, xb.x, xb.y, xb.z, xb.w);
+    float wv[8] = float[8](wa.x, wa.y, wa.z, wa.w, wb.x, wb.y, wb.z, wb.w);
+    barrier(); // the previous step has read xs / ws
+    for (uint k = 0u; k < 8u; k++)
+    {
+      xs[(lk + k) * (TM / 4) + j][c] = xv[k];
+      ws[(lk + k) * (TN / 4) + j][c] = wv[k];
+    }
+    barrier();
+    for (uint k = 0u; k < TK; k++)
+    {
+      vec4 a = xs[k * (TM / 4) + ty];
+      vec4 b = ws[k * (TN / 4) + tx];
+      acc[0] += a.x * b;
+      acc[1] += a.y * b;
+      acc[2] += a.z * b;
+      acc[3] += a.w * b;
+    }
+  }
+  for (uint i = 0u; i < 4u; i++)
+  {
+    uint r = r0 + ty * 4u + i;
+    if (r < p.rows)
+      for (uint c = 0u; c < 4u; c++)
+      {
+        uint o = o0 + tx * 4u + c;
+        if (o < p.nout)
+        {
+          float v = acc[i][c] + bias[o];
+          if ((p.flags & 1u) != 0u)
+            v = 0.5 * v * (1.0 + erfApprox(v * 0.70710678118654752));
+          if ((p.flags & 4u) != 0u)
+            v = res[p.rOff + r * p.yStride + o] + scale[o] * v;
+          else if ((p.flags & 2u) != 0u)
+            v = res[p.rOff + r * p.yStride + o] + v;
+          if ((p.flags & 8u) != 0u)
+            v = clamp(v, -1.0, 1.0);
+          y[p.yOff + r * p.yStride + o] = v;
+        }
+      }
+  }
+}
