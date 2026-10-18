@@ -1,0 +1,23 @@
+mormot2-qwen-tts - a native Qwen3-TTS engine for the Synopse mORMot 2
+framework, built on the mormot.ai.* extension (LandrixAI / mormot2-ai).
+
+Copyright (c) 2026 flydev-fr (https://github.com/flydev-fr) and contributors.
+
+License: the mORMot three-license.
+This work - source code, shaders, tests, demos, scripts, test data and its own
+documentation - is released under a disjunctive three-license giving the user
+the choice of one of the three following sets of licensing terms:
+  - Mozilla Public License, version 1.1 or later (MPL);
+  - GNU General Public License, version 2.0 or later (GPL);
+  - GNU Lesser General Public License, version 2.1 or later (LGPL), with the
+    linking exception of the FPC modified LGPL.
+The three licenses and the text of the linking exception are those stated in
+the "MPL 1.1/GPL 2.0/LGPL 2.1 three-license" section of mORMot 2's LICENCE.md:
+https://github.com/synopse/mORMot2/blob/master/LICENCE.md
+(The separate GPL 3.0 terms that mORMot applies to its own documentation do
+not apply here.)
+
+All parts are original work. The Qwen3-TTS model, its weights and the
+qwen_tts Python package are not part of this work: the model was read as a
+reference and is downloaded by the user under its own license (see NOTICE).
+The git submodule external/mormot2-ai keeps its own license.

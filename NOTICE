@@ -1,0 +1,50 @@
+mormot2-qwen-tts
+================
+
+THIRD-PARTY COMPONENTS AND REFERENCES
+
+mORMot 2  (Synopse Informatique - Arnaud Bouchez)
+  Runtime foundation: JSON, RTTI, variants, threads, logging, tests.
+  License: MPL 1.1 / GPL 2.0 / LGPL 2.1 (three-license).
+  https://github.com/synopse/mORMot2
+
+mormot2-ai - mormot.ai.* extension  (LandrixAI - Landrix / Sven Harazim)
+  The native inference engine this work is built on: safetensors loader, BPE
+  tokenizer, AVX2 kernels, thread pool, sampler, Vulkan device and shaders;
+  its test unit test.infer.ref reads the dataset of tests/data/infer-ref.
+  Used as the git submodule external/mormot2-ai, not copied. The push
+  constant records of its Vulkan shaders are repeated in
+  src/tts/mormot.ai.tts.qwen.lm.vulkan.pas (they are private to its units),
+  and tools/tts/vk/convgemm.comp follows the tiling of its gemm8.comp.
+  License: MPL 1.1 / GPL 2.0 / LGPL 2.1 (three-license, follows mORMot).
+  https://github.com/landrix/mormot2-ai
+
+Qwen3-TTS  (Alibaba Cloud - Qwen team)  (FOLLOWED: architecture and prompt)
+  The engine computes Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice (revision
+  85e237c12c027371202489a0ec509ded67b5e4b5): the talker, the code predictor
+  and the 12 Hz speech tokenizer decoder, reimplemented in Pascal and GLSL
+  after the qwen_tts package 0.1.1 (core/models/modeling_qwen3_tts.py,
+  core/tokenizer_12hz/modeling_qwen3_tts_tokenizer_v2.py,
+  inference/qwen3_tts_model.py). No Python code and no weights are copied or
+  shipped; the model is downloaded by the user.
+  The dataset tests/data/infer-ref/qwen3-tts-lm holds values computed by this
+  model in PyTorch, and 14 rows of its codec embeddings.
+  License of the model and of qwen_tts: Apache-2.0.
+  https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice
+  https://github.com/QwenLM/Qwen3-TTS
+
+Cephes Mathematical Library  (Stephen L. Moshier)  (FOLLOWED: coefficients)
+  tools/tts/vk/snake.comp evaluates sin and cos with the minimax polynomial
+  coefficients of the Cephes sinf/cosf routines, after a Cody-Waite range
+  reduction. Only the published coefficients are used.
+  https://www.netlib.org/cephes/
+
+Abramowitz & Stegun, Handbook of Mathematical Functions, 7.1.26
+  tools/tts/vk/convgemm.comp computes erf (for the exact GELU) with this
+  published rational approximation.
+
+glslang  (Khronos Group)  (TOOL ONLY)
+  tools/tts/vk/build-shaders.ps1 compiles the shaders with the official
+  glslang release into src/tts/mormot.ai.tts.qwen.spv.inc; glslang is neither
+  shipped nor needed to build or run.
+  https://github.com/KhronosGroup/glslang
