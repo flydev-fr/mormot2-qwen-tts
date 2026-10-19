@@ -33,10 +33,59 @@ Qwen3-TTS  (Alibaba Cloud - Qwen team)  (FOLLOWED: architecture and prompt)
   https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice
   https://github.com/QwenLM/Qwen3-TTS
 
+Kokoro-82M  (hexgrad)  (FOLLOWED: architecture, voices, vocabulary)
+  The Kokoro engine computes hexgrad/Kokoro-82M (revision
+  f3ff3571791e39611d31c381e3a41a3af07b4987): ALBERT, the prosody predictor,
+  the text encoder, the decoder and the iSTFTNet vocoder, reimplemented in
+  Pascal after the kokoro package 0.9.4 (model.py, modules.py, istftnet.py;
+  the language codes of pipeline.py). No Python code and no weights are
+  copied or shipped; the model is downloaded by the user.
+  tools/tts/kokoro_ref.py drives the kokoro package to write the test
+  references.
+  License of the model and of kokoro: Apache-2.0.
+  https://huggingface.co/hexgrad/Kokoro-82M
+  https://github.com/hexgrad/kokoro
+
+StyleTTS 2  (Yinghao Aaron Li et al.)  (FOLLOWED: architecture)
+  Kokoro is a StyleTTS 2 model with an iSTFTNet decoder; its modules (AdaIN
+  residual blocks, the duration encoder, the harmonic source, the Snake
+  residual blocks of the generator) come from the StyleTTS 2 code.
+  License: MIT.
+  https://github.com/yl4579/StyleTTS2
+
+misaki  (hexgrad)  (FOLLOWED: G2P post-processing)
+  mormot.ai.tts.espeak applies the phoneme replacements of misaki 0.9.4's
+  EspeakG2P (its e2m table, the handling of quotes and parentheses), so that
+  the phonemes match what Kokoro was trained on.
+  License: Apache-2.0.
+  https://github.com/hexgrad/misaki
+
+phonemizer  (Mathieu Bernard, CoML)  (FOLLOWED: punctuation handling)
+  mormot.ai.tts.espeak reproduces, step by step, the behaviour of
+  phonemizer's Punctuation.preserve / restore and of the EspeakBackend line
+  post-processing (phonemizer-fork 3.3.2, as used by misaki), so that espeak
+  receives the same pieces of text and the output is joined back the same
+  way. No Python code is shipped.
+  License: GPL-3.0-or-later.
+  https://github.com/bootphon/phonemizer
+
+espeak-ng  (RUNTIME ONLY)
+  mormot.ai.tts.espeak loads espeak-ng.dll (or libespeak-ng) at runtime from
+  a folder given by the user, and calls espeak_TextToPhonemes. espeak-ng is
+  neither shipped, nor linked at build time, nor needed to build.
+  License: GPL-3.0-or-later.
+  https://github.com/espeak-ng/espeak-ng
+
+PyTorch serialization format  (FOLLOWED: file format)
+  mormot.ai.tts.torchfile reads the zip + pickle files written by
+  torch.save (protocols 2 to 5, the _rebuild_tensor_v2 / *Storage objects).
+  https://github.com/pytorch/pytorch
+
 Cephes Mathematical Library  (Stephen L. Moshier)  (FOLLOWED: coefficients)
-  tools/tts/vk/snake.comp evaluates sin and cos with the minimax polynomial
-  coefficients of the Cephes sinf/cosf routines, after a Cody-Waite range
-  reduction. Only the published coefficients are used.
+  tools/tts/vk/snake.comp and KokoroSin (mormot.ai.tts.kokoro.kernels)
+  evaluate sin and cos with the minimax polynomial coefficients of the Cephes
+  sinf/cosf routines, after a Cody-Waite range reduction. Only the published
+  coefficients are used.
   https://www.netlib.org/cephes/
 
 Abramowitz & Stegun, Handbook of Mathematical Functions, 7.1.26

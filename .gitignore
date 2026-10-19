@@ -18,6 +18,7 @@ __recovery/
 *.stat
 *.dproj.local
 
-# PyTorch references of tools/tts/qwen_ref.py (large)
+# PyTorch references of tools/tts/qwen_ref.py and kokoro_ref.py (large)
 ref/
+ref-kokoro/
 __pycache__/

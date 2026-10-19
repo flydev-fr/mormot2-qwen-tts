@@ -11,6 +11,10 @@ streams as 24 kHz PCM while the rest of the sentence is computed.
 Every stage was checked against the PyTorch reference of the official
 `qwen_tts` package (greedy, CPU, float32).
 
+A second engine, for [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M),
+is much lighter (82 M parameters, 330 MB) and runs on the CPU only, about 30
+times faster than real time: see [Kokoro-82M](#kokoro-82m) below.
+
 ## Measured
 
 On a Ryzen 9 9950X3D (22 threads) with a Radeon RX 9060 XT, Debug build, from
@@ -183,8 +187,147 @@ What mormot2-ai did not cover yet, and how this code works around it:
   weights freed and reallocated at the same address would be served stale,
   so free them only with the backend, or after `ClearWeights`.
 
+## Kokoro-82M
+
+[Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) (hexgrad, Apache-2.0)
+is a StyleTTS 2 model with an iSTFTNet vocoder: ALBERT reads the phonemes,
+a predictor gives each one a duration, F0 and energy, then the decoder and
+the vocoder output the whole chunk at once - it is not autoregressive. Its
+54 voices cover English, French, Spanish, Italian, Brazilian Portuguese,
+Hindi, Japanese and Chinese; the French one, `ff_siwis`, is the default.
+
+The phonemes come from [espeak-ng](https://github.com/espeak-ng/espeak-ng),
+loaded at runtime, through the same steps as the Python package (misaki's
+`EspeakG2P` over phonemizer): the native engine gets the same phonemes,
+hence the same ids and durations.
+
+### Measured
+
+Same machine, Debug build, 22 threads, from the test suite (2026-10-19):
+
+| | |
+|---|---|
+| Model alone (9.45 s of audio) | x31 real time, 0.30 s |
+| Engine, end to end (14.6 s of audio, 3 chunks) | x28, first sound in 56 ms |
+| Load | 0.37 s |
+
+The matrix products run on a register-blocked kernel (6 x 16 outputs in
+AVX2/FMA, 6 x 32 in AVX-512, detected at runtime; Pascal loops otherwise).
+
+Against PyTorch (kokoro 0.9.4, CPU, float32), on four French sentences:
+- phonemes, ids and durations identical;
+- every stage within 2e-3 of the peak of the reference;
+- with PyTorch's STFT of the harmonic source forced in, the wav within 4e-6
+  (SNR 111 dB);
+- fully native, an SNR of 24-26 dB: the phase of the harmonic source
+  accumulates the tiny F0 differences over 300 samples per frame, which
+  changes the waveform but not what one hears.
+
+### Requirements
+
+- The model, about 340 MB, e.g. `hf download hexgrad/Kokoro-82M --include
+  config.json kokoro-v1_0.pth "voices/*"` (revision
+  `f3ff3571791e39611d31c381e3a41a3af07b4987` was tested), found in a Hugging
+  Face cache as above, or given as a folder.
+- espeak-ng: `espeak-ng.dll` and its `espeak-ng-data` folder, side by side,
+  e.g. the ones of the `espeakng-loader` wheel (0.2.4 was tested: unzip
+  `espeakng_loader/` from the win_amd64 wheel). By default the engine looks
+  for an `espeak-ng` folder next to the executable. Other systems would load
+  `libespeak-ng.so.1` or `libespeak-ng.dylib` from that folder: not tested.
+- Nothing else: no GPU, no Python.
+
+### Demo
+
+`demos/tts/kokorotts.dproj` builds `bin/Win64-Debug/kokorotts.exe`:
+
+```
+kokorotts "Cible en vue, deux hostiles en local."
+kokorotts "Hello from mORMot 2." /voice af_heart /wav hello.wav
+kokorotts "Rapido, por favor." /voice ef_dora /speed 1.2
+kokorotts /voices
+```
+
+The first letter of a voice gives its language: `a` American English, `b`
+British English, `e` Spanish, `f` French, `h` Hindi, `i` Italian, `p`
+Brazilian Portuguese; English goes through espeak-ng too, not through
+misaki's dictionary. Japanese and Chinese voices are not supported here.
+
+### In code
+
+```pascal
+uses
+  mormot.ai.tts.kokoro;
+
+var
+  s: TKokoroTtsSettings;
+  tts: TKokoroTts;
+begin
+  s := KokoroTtsDefaults;  // ff_siwis, speed 1
+  tts := TKokoroTts.Create(s);
+  try
+    tts.Speak('Cible en vue, deux hostiles en local.');
+    // or tts.Synthesize(text, voice, OnPcm, OnAbort) to get the samples
+  finally
+    tts.Free;
+  end;
+end;
+```
+
+The text is split as for Qwen (`TtsSplitText`), with a short first chunk
+cut at a comma, so that the first sound comes after the first few words.
+
+### Units
+
+| Unit (`src/tts`) | Role |
+|---|---|
+| `mormot.ai.tts.kokoro` | `TKokoroTts`: settings, text chunks, espeak-ng per language, voices, streaming, measures |
+| `mormot.ai.tts.kokoro.model` | the network: ALBERT, the predictor, the text encoder, the decoder, the vocoder (harmonic source, STFT, iSTFT); the voices |
+| `mormot.ai.tts.kokoro.nn` | its building blocks on a thread pool: linear, 1D and transposed convolutions, bidirectional LSTM, AdaIN, AdaLayerNorm, the residual blocks |
+| `mormot.ai.tts.kokoro.kernels` | the CPU kernels: matrix product, AdaIN + Snake, LSTM cell, sine |
+| `mormot.ai.tts.espeak` | text to Kokoro phonemes through espeak-ng |
+| `mormot.ai.tts.torchfile` | reads PyTorch `.pth` / `.pt` files (`torch.save`) without Python: the zip and a small pickle machine |
+| `mormot.ai.tts.common` | what both engines share: text chunks, model folders |
+
+### Tests
+
+The same runner, `tests/tts.tests.dproj`, holds the Kokoro tests:
+
+- the model: `KOKORO_TTS_MODEL` (the snapshot folder), or the Hugging Face
+  cache;
+- espeak-ng: `KOKORO_ESPEAK` (the folder of `espeak-ng.dll`), or `espeak-ng`
+  next to the executable;
+- the references: `KOKORO_TTS_REF`, the output folder of
+  `tools/tts/kokoro_ref.py` (about 340 MB), or `ref-kokoro` next to the
+  executable; the docstring of the script gives the four commands (kokoro
+  0.9.4 and torch 2.14.1 were used). The script sets the random parts of the
+  harmonic source to zero, which the native model can do as well, so that
+  the sound compares sample by sample.
+
+The kernel tests need nothing: they compare the assembler with the Pascal
+loops, bit for bit.
+
+### Notes from the port
+
+- Single-precision code needs `{$EXCESSPRECISION OFF}`: otherwise Win64
+  computes singles in double, and the phase of the harmonic source, tens of
+  thousands of radians, drifts away from PyTorch.
+- PyTorch's `cumsum` on the CPU sums float32 in double: so does the port.
+- Each output of the matrix product sums in blocks of 16 in single, then an
+  intermediate total in single, then the total in double: a plain float32
+  sum drifted to 9e-6 from PyTorch (SNR 97 dB), this order gives the SNR of
+  an all-double product (111 dB). The order does not depend on the tiling or
+  the number of threads.
+- The random initial phase of `SineGen` only touches the first sample of
+  each frame, which the 1/300 interpolation never reads: it has no effect.
+- The weights use `weight_norm` (g, v): w = v * (g / |v|) is computed once
+  at load time, in float32 as `torch._weight_norm`.
+
 ## License
 
 The mORMot three-license, MPL 1.1 / GPL 2.0 / LGPL 2.1: see [LICENSE](LICENSE)
 and, for the model and other references, [NOTICE](NOTICE). The Qwen3-TTS
-model and weights are Apache-2.0 and are not part of this repository.
+and Kokoro-82M models and weights are Apache-2.0 and are not part of this
+repository. espeak-ng is GPL-3.0-or-later: it is neither shipped nor linked
+at build time, only loaded at runtime from a folder the user provides.
+`mormot.ai.tts.espeak` follows the punctuation handling of phonemizer
+(GPL-3.0-or-later) step by step, so that the phonemes match: see NOTICE.
