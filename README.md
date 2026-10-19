@@ -38,7 +38,7 @@ Against PyTorch:
 
 - Delphi with mORMot 2 in the library path, as mORMot 2 recommends. Built
   and tested with Delphi 13 (Win64) only.
-- mormot2-ai: the git submodule `external/mormot2-ai`, pinned at `a9ab1a7`
+- mormot2-ai: the git submodule `external/mormot2-ai`, pinned at `5b30ded`
   (`git submodule update --init`).
 - Optional: a Vulkan GPU (1.0 or later) with ~1 GB of free memory; without
   one, everything runs on the CPU.
@@ -143,9 +143,9 @@ python tools/tts/qwen_ref.py --out fr-long --no-blocks --text "Alerte, flotte ho
 
 `tests/data/infer-ref/qwen3-tts-lm` is a small dataset (2.7 MB) in the format
 of mormot2-ai's `tests/data/infer-ref` (`manifest.json` + `tensors.bin`,
-sha256 per tensor, read by its `test.infer.ref`), so the folder can be
-dropped there as is. Both Qwen3 stacks of the model take embedding rows
-instead of token ids:
+sha256 per tensor, read by its `test.infer.ref`); mormot2-ai adopted it as
+is on 2026-10-19 (commit 7c1824f). Both Qwen3 stacks of the model take
+embedding rows instead of token ids:
 
 - `talker.embed` [22, 1024]: the prefill of one sentence; `talker.layer00`
   .. `layer26`, `talker.norm` [22, 1024]; `talker.logits_last` [3072]
