@@ -27,7 +27,8 @@ uses
   mormot.ai.infer.backend.cpu,
   mormot.ai.infer.kernels,
   mormot.ai.infer.threads,
-  mormot.ai.infer.loader.safetensors;
+  mormot.ai.infer.loader.safetensors,
+  mormot.ai.tts.common;
 
 const
   /// the code groups of one frame
@@ -1083,19 +1084,8 @@ end;
 
 
 function QwenHfSnapshot(const aHfHome: TFileName; const aRepo: RawUtf8): TFileName;
-var
-  folder: TFileName;
-  rev: RawUtf8;
 begin
-  result := '';
-  folder := IncludeTrailingPathDelimiter(aHfHome) + 'hub' + PathDelim +
-    Utf8ToString('models--' + StringReplaceAll(aRepo, '/', '--')) + PathDelim;
-  rev := TrimU(StringFromFile(folder + 'refs' + PathDelim + 'main'));
-  if rev = '' then
-    exit;
-  folder := folder + 'snapshots' + PathDelim + Utf8ToString(rev) + PathDelim;
-  if DirectoryExists(folder) then
-    result := folder;
+  result := TtsHfSnapshot(aHfHome, aRepo);
 end;
 
 end.
