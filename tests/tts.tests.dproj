@@ -81,6 +81,11 @@
         <DCCReference Include="test.tts.qwen.talker.pas"/>
         <DCCReference Include="test.tts.qwen.vulkan.pas"/>
         <DCCReference Include="test.tts.qwen.engine.pas"/>
+        <DCCReference Include="test.tts.kokoro.ref.pas"/>
+        <DCCReference Include="test.tts.kokoro.g2p.pas"/>
+        <DCCReference Include="test.tts.kokoro.kernels.pas"/>
+        <DCCReference Include="test.tts.kokoro.model.pas"/>
+        <DCCReference Include="test.tts.kokoro.engine.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

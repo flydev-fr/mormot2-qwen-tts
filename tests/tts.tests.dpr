@@ -1,9 +1,10 @@
-// - console test runner of the native Qwen3-TTS engine (src/tts)
+// - console test runner of the native Qwen3-TTS and Kokoro engines (src/tts)
 // - part of mormot2-qwen-tts, built on mormot2-ai
 // - licensed under a MPL/GPL/LGPL three license - see LICENSE
 // - the qwen3-tts-lm dataset is committed under tests/data/infer-ref; the
 //   model comes from QWEN_TTS_MODEL or the Hugging Face cache, the sentence
-//   references of tools/tts/qwen_ref.py from QWEN_TTS_REF - the tests which
+//   references of tools/tts/qwen_ref.py from QWEN_TTS_REF; Kokoro from
+//   KOKORO_TTS_MODEL, KOKORO_ESPEAK and KOKORO_TTS_REF - the tests which
 //   need what is missing are skipped
 // - /noenter: do not wait for ENTER at the end
 program tts.tests;
@@ -27,7 +28,12 @@ uses
   test.tts.qwen.codec.vulkan,
   test.tts.qwen.talker,
   test.tts.qwen.vulkan,
-  test.tts.qwen.engine;
+  test.tts.qwen.engine,
+  test.tts.kokoro.ref,
+  test.tts.kokoro.g2p,
+  test.tts.kokoro.kernels,
+  test.tts.kokoro.model,
+  test.tts.kokoro.engine;
 
 type
   TTtsTests = class(TSynTestsLogged)
@@ -42,6 +48,9 @@ type
     procedure Vulkan;
     /// the engine end to end: text -> streamed sound
     procedure Engine;
+    /// Kokoro-82M: espeak-ng phonemes, the CPU kernels, the model against
+    // PyTorch, the engine end to end
+    procedure Kokoro;
   end;
 
 { TTtsTests }
@@ -77,6 +86,15 @@ begin
     TTestQwenEngine]);
 end;
 
+procedure TTtsTests.Kokoro;
 begin
-  TTtsTests.RunAsConsole('Qwen3-TTS Regression Tests', LOG_VERBOSE);
+  AddCase([
+    TTestKokoroG2P,
+    TTestKokoroKernels,
+    TTestKokoroModel,
+    TTestKokoroEngine]);
+end;
+
+begin
+  TTtsTests.RunAsConsole('mORMot2 TTS Regression Tests', LOG_VERBOSE);
 end.
