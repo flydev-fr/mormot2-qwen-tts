@@ -106,6 +106,7 @@ type
 
   TAttentionPush = record
     Rows, Heads, HeadDim, KvHeads, Past, Splits, HeadBlock, RowBlock: cardinal;
+    Window: cardinal; // > 0: the keys of the last Window positions only
   end;
 
   TMergePush = record
@@ -115,6 +116,8 @@ type
   TQkRopePush = record
     Rows, Heads, KvHeads, HeadDim, Past: cardinal;
     Eps: single;
+    Norm: cardinal; // 1: RMSNorm of every Q and K head (QNorm, KNorm)
+    Rope: cardinal; // 0: no rotary positions (a NoPE layer)
   end;
 
 const
@@ -474,6 +477,8 @@ begin
     qk.HeadDim := w.HeadDim;
     qk.Past := past;
     qk.Eps := w.Eps;
+    qk.Norm := 1;
+    qk.Rope := 1;
     norm.Rows := n;
     norm.Cols := h;
     norm.Eps := w.Eps;
@@ -485,6 +490,7 @@ begin
     att.Splits := splits;
     att.HeadBlock := hb;
     att.RowBlock := rb;
+    att.Window := 0;
     merge.Rows := n;
     merge.Heads := w.Heads;
     merge.HeadDim := w.HeadDim;
