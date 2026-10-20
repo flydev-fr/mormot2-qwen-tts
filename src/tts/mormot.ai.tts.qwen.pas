@@ -32,7 +32,7 @@ uses
   mormot.ai.tts.wave,
   mormot.ai.tts.qwen.codec,
   mormot.ai.tts.qwen.codec.vulkan,
-  mormot.ai.tts.qwen.lm.vulkan,
+  mormot.ai.tts.qwen.lm,
   mormot.ai.tts.qwen.talker;
 
 const

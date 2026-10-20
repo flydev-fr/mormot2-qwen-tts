@@ -28,7 +28,7 @@ uses
   mormot.ai.infer.vulkan,
   mormot.ai.infer.backend.vulkan,
   mormot.ai.tts.qwen.codec,
-  mormot.ai.tts.qwen.lm.vulkan;
+  mormot.ai.tts.qwen.lm;
 
 type
   /// a convolution input on the GPU: Buf = [Past history rows ; new rows],

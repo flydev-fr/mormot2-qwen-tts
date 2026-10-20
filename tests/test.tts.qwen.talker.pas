@@ -262,11 +262,11 @@ var
   digest: array[boolean] of cardinal;
   ms: array[boolean] of double;
   parallel: boolean;
-  w: TQwenLmWeights;
+  w: TQwenLmHeads;
   g: PtrInt;
   timer: TPrecisionTimer;
 begin
-  // the code predictor (5 layers, 15 heads, the shapes of the talker) in Q8_0,
+  // the 15 heads of the code predictor in Q8_0,
   // converted on the calling thread then on 8 threads: the same bytes
   if Talker = nil then
     exit;
@@ -282,11 +282,11 @@ begin
       else
         p := nil;
       timer.Start;
-      w := TQwenLmWeights.Create(f, 'predictor', 'talker.code_predictor.model.',
-        cfg.O['talker_config']^.O['code_predictor_config']^, idtQ8_0, p);
+      w := TQwenLmHeads.Create('predictor',
+        cfg.O['talker_config']^.O['code_predictor_config']^.I['hidden_size'], idtQ8_0);
       try
         for g := 0 to QWEN_CODE_GROUPS - 2 do
-          w.AddOutput(f, FormatUtf8('talker.code_predictor.lm_head.%.weight', [g]),
+          w.Add(f, FormatUtf8('talker.code_predictor.lm_head.%.weight', [g]),
             QWEN_CODEBOOK_SIZE, p);
         ms[parallel] := timer.StopInMicroSec / 1000;
         digest[parallel] := w.Digest;

@@ -35,8 +35,7 @@ uses
   mormot.ai.infer.tokenizer.bpe,
   mormot.ai.infer.sampler,
   mormot.ai.tts.qwen.codec,
-  mormot.ai.tts.qwen.lm,
-  mormot.ai.tts.qwen.lm.vulkan;
+  mormot.ai.tts.qwen.lm;
 
 type
   EQwenTalker = class(ESynException);
@@ -99,7 +98,7 @@ type
     fCodecEmb: TSingleDynArray;
     fPredEmb: array of TSingleDynArray;
     // the two stacks
-    fTalkerW, fPredW: TQwenLmWeights;
+    fTalkerH, fPredH: TQwenLmHeads;
     fTalker, fPredictor: TQwenLm;
     // the choice of the codes
     fSampling: TQwenSampling;
@@ -112,7 +111,6 @@ type
     fProbe: TOnQwenProbe;
     procedure SetProbe(const aProbe: TOnQwenProbe);
     procedure Emit(const aName: RawUtf8; aData: PSingleArray; aRows, aCols: PtrInt);
-    function NewLm(aWeights: TQwenLmWeights): TQwenLm;
     procedure TextProject(const aIds: array of integer; y: PSingleArray);
     procedure AddRow(const aEmb: TSingleDynArray; aId: PtrInt; y: PSingleArray);
     function ChooseCode0: integer;
@@ -144,10 +142,10 @@ type
     property Vulkan: TQwenVulkan
       read fVulkan;
     /// the weights of the two stacks
-    property TalkerWeights: TQwenLmWeights
-      read fTalkerW;
-    property PredictorWeights: TQwenLmWeights
-      read fPredW;
+    property TalkerHeads: TQwenLmHeads
+      read fTalkerH;
+    property PredictorHeads: TQwenLmHeads
+      read fPredH;
     /// to be changed before Start
     property Sampling: TQwenSampling
       read fSampling write fSampling;
@@ -311,19 +309,22 @@ begin
   if threads > 1 then
     pool := TInferThreadPool.Create(threads - 1);
   try
-    fTalkerW := TQwenLmWeights.Create(fFile, 'talker', 'talker.model.', tc^,
-      aOptions.DType, pool);
-    fTalkerW.AddOutput(fFile, 'talker.codec_head.weight', fVocab, pool);
-    fPredW := TQwenLmWeights.Create(fFile, 'predictor', 'talker.code_predictor.model.',
-      pc^, aOptions.DType, pool);
+    fTalkerH := TQwenLmHeads.Create('talker', fHidden, aOptions.DType);
+    fTalkerH.Add(fFile, 'talker.codec_head.weight', fVocab, pool);
+    fPredH := TQwenLmHeads.Create('predictor', fHidden, aOptions.DType);
     for g := 0 to fGroups - 2 do
-      fPredW.AddOutput(fFile, FormatUtf8('talker.code_predictor.lm_head.%.weight',
+      fPredH.Add(fFile, FormatUtf8('talker.code_predictor.lm_head.%.weight',
         [g]), fPredVocab, pool);
   finally
     pool.Free;
   end;
-  fTalker := NewLm(fTalkerW);
-  fPredictor := NewLm(fPredW);
+  // the layers: mormot2-ai decoder stacks, converted on the pool of fCpu, run
+  // on the CPU or on the GPU
+  fTalker := TQwenLm.Create(QwenLmStack(folder, fCpu, 'talker_config',
+    'talker.model.', aOptions.DType), fTalkerH, fCpu, fVulkan, aOptions.KvF16);
+  fPredictor := TQwenLm.Create(QwenLmStack(folder, fCpu,
+    'talker_config.code_predictor_config', 'talker.code_predictor.model.',
+    aOptions.DType), fPredH, fCpu, fVulkan, aOptions.KvF16);
   // tts_bos / tts_eos / tts_pad through the text projection
   SetLength(fTtsBos, fHidden);
   SetLength(fTtsEos, fHidden);
@@ -342,8 +343,8 @@ destructor TQwenTalker.Destroy;
 begin
   fTalker.Free;
   fPredictor.Free;
-  fTalkerW.Free;
-  fPredW.Free;
+  fTalkerH.Free;
+  fPredH.Free;
   fSampler.Free;
   fSubSampler.Free;
   fTokenizer.Free;
@@ -351,14 +352,6 @@ begin
   fVulkan.Free;
   fOwnCpu.Free;
   inherited Destroy;
-end;
-
-function TQwenTalker.NewLm(aWeights: TQwenLmWeights): TQwenLm;
-begin
-  if fVulkan <> nil then
-    result := TQwenLmVulkan.CreateVulkan(aWeights, fVulkan, fOptions.KvF16)
-  else
-    result := TQwenLmCpu.CreateCpu(aWeights, fCpu);
 end;
 
 procedure TQwenTalker.SetProbe(const aProbe: TOnQwenProbe);

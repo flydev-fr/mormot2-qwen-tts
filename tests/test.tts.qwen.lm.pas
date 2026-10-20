@@ -23,12 +23,12 @@ uses
   mormot.core.perf,
   mormot.core.test,
   mormot.ai.infer.tensor,
+  mormot.ai.infer.backend,
   mormot.ai.infer.backend.cpu,
   mormot.ai.infer.loader.safetensors,
   mormot.ai.infer.threads,
   mormot.ai.tts.qwen.codec,
   mormot.ai.tts.qwen.lm,
-  mormot.ai.tts.qwen.lm.vulkan,
   test.infer.ref,
   test.tts.qwen.ref;
 
@@ -169,7 +169,8 @@ var
   tc, pc: PDocVariantData;
   pool: TInferThreadPool;
   cpu: TInferCpuFastBackend;
-  w: TQwenLmWeights;
+  w: TQwenLmHeads;
+  heads: TInferBackend;
   lm: TQwenLm;
   embed: PSingleArray;
   codes: PIntegerArray;
@@ -191,29 +192,32 @@ begin
   pool := TInferThreadPool.Create((SystemInfo.dwNumberOfProcessors * 2 + 2) div 3 - 1);
   cpu := nil;
   if aVulkan = nil then
+  begin
     cpu := TInferCpuFastBackend.Create;
+    heads := cpu;
+  end
+  else
+    heads := aVulkan.Backend;
   try
     codes := Ref.I32('predictor.codes', n);
     // the talker: 22 rows at once, from position 0
     timer.Start;
-    w := TQwenLmWeights.Create(f, 'talker', 'talker.model.', tc^, aDType, pool);
+    w := TQwenLmHeads.Create('talker', tc^.I['hidden_size'], aDType);
     try
-      w.AddOutput(f, 'talker.codec_head.weight', tc^.I['vocab_size'], pool);
-      if aVulkan <> nil then
-        lm := TQwenLmVulkan.CreateVulkan(w, aVulkan, false)
-      else
-        lm := TQwenLmCpu.CreateCpu(w, cpu);
+      w.Add(f, 'talker.codec_head.weight', tc^.I['vocab_size'], pool);
+      lm := TQwenLm.Create(QwenLmStack(snap, heads, 'talker_config',
+        'talker.model.', aDType), w, heads, aVulkan);
       try
         embed := Ref.F32('talker.embed', n);
         rows := n div w.Hidden;
-        SetLength(logits, w.OutputRows(0));
+        SetLength(logits, w.Rows(0));
         SetLength(hidden, w.Hidden);
         fLog.Clear;
         lm.Probe := fLog.Collect; // CPU only: the GPU returns the last row
         lm.Forward(embed, rows, 0, pointer(logits), pointer(hidden));
         AddConsole('% talker: % rows in %', [aLabel, rows, timer.Stop]);
         states := 0;
-        for l := 0 to w.LayerCount - 2 do
+        for l := 0 to lm.Model.Config.Layers - 2 do
         begin
           i := fLog.Find(FormatUtf8('talker.layer%', [l]));
           if i < 0 then
@@ -226,7 +230,7 @@ begin
         end;
         if states > 0 then
           AddConsole('% talker.layer00..%: max |diff| %', [aLabel,
-            w.LayerCount - 2, states]);
+            lm.Model.Config.Layers - 2, states]);
         i := fLog.Find('talker.out');
         if i >= 0 then
         begin
@@ -247,23 +251,21 @@ begin
         lm.Free;
       end;
     finally
-      w.Free; // TQwenLmVulkan forgot its device copies when freed
+      w.Free;
     end;
     // the code predictor: 2 rows, then one per group, each with its head
     timer.Start;
-    w := TQwenLmWeights.Create(f, 'predictor', 'talker.code_predictor.model.', pc^,
-      aDType, pool);
+    w := TQwenLmHeads.Create('predictor', pc^.I['hidden_size'], aDType);
     try
       for g := 0 to QWEN_CODE_GROUPS - 2 do
-        w.AddOutput(f, FormatUtf8('talker.code_predictor.lm_head.%.weight', [g]),
+        w.Add(f, FormatUtf8('talker.code_predictor.lm_head.%.weight', [g]),
           pc^.I['vocab_size'], pool);
-      if aVulkan <> nil then
-        lm := TQwenLmVulkan.CreateVulkan(w, aVulkan, false)
-      else
-        lm := TQwenLmCpu.CreateCpu(w, cpu);
+      lm := TQwenLm.Create(QwenLmStack(snap, heads,
+        'talker_config.code_predictor_config', 'talker.code_predictor.model.',
+        aDType), w, heads, aVulkan);
       try
         embed := Ref.F32('predictor.embed', n);
-        SetLength(logits, w.OutputRows(0));
+        SetLength(logits, w.Rows(0));
         wrong := -1;
         worstAbs := 0;
         worstCos := 1;

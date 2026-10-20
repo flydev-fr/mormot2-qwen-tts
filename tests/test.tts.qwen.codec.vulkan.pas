@@ -19,7 +19,7 @@ uses
   mormot.core.test,
   mormot.ai.tts.qwen.codec,
   mormot.ai.tts.qwen.codec.vulkan,
-  mormot.ai.tts.qwen.lm.vulkan,
+  mormot.ai.tts.qwen.lm,
   test.tts.qwen.ref;
 
 type

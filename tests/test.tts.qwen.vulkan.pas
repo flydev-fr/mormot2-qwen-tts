@@ -26,7 +26,6 @@ uses
   mormot.ai.infer.loader.safetensors,
   mormot.ai.tts.qwen.codec,
   mormot.ai.tts.qwen.lm,
-  mormot.ai.tts.qwen.lm.vulkan,
   mormot.ai.tts.qwen.talker,
   test.tts.qwen.ref;
 
@@ -152,7 +151,7 @@ procedure TTestQwenVulkan.ComparePredictor(aKvF16: boolean; aTolerance: double);
 var
   f: TSafeTensorsFile;
   cfg: TDocVariantData;
-  w: TQwenLmWeights;
+  w: TQwenLmHeads;
   cpu: TInferCpuFastBackend;
   vk: TQwenVulkan;
   a, b: TQwenLm;
@@ -171,13 +170,17 @@ begin
   a := nil;
   b := nil;
   try
-    w := TQwenLmWeights.Create(f, 'predictor', 'talker.code_predictor.model.',
-      cfg.O['talker_config']^.O['code_predictor_config']^, idtF32);
+    w := TQwenLmHeads.Create('predictor',
+      cfg.O['talker_config']^.O['code_predictor_config']^.I['hidden_size'], idtF32);
     for g := 0 to QWEN_CODE_GROUPS - 2 do
-      w.AddOutput(f, FormatUtf8('talker.code_predictor.lm_head.%.weight', [g]),
+      w.Add(f, FormatUtf8('talker.code_predictor.lm_head.%.weight', [g]),
         QWEN_CODEBOOK_SIZE);
-    a := TQwenLmCpu.CreateCpu(w, cpu);
-    b := TQwenLmVulkan.CreateVulkan(w, vk, aKvF16);
+    a := TQwenLm.Create(QwenLmStack(fSnapshot, cpu,
+      'talker_config.code_predictor_config', 'talker.code_predictor.model.', idtF32),
+      w, cpu);
+    b := TQwenLm.Create(QwenLmStack(fSnapshot, vk.Backend,
+      'talker_config.code_predictor_config', 'talker.code_predictor.model.', idtF32),
+      w, vk.Backend, vk, aKvF16);
     SetLength(x, 2 * w.Hidden);
     SetLength(la, QWEN_CODEBOOK_SIZE);
     SetLength(lb, QWEN_CODEBOOK_SIZE);

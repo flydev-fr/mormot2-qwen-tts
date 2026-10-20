@@ -22,7 +22,7 @@ uses
   mormot.core.test,
   mormot.ai.infer.tensor,
   mormot.ai.tts.qwen.codec,
-  mormot.ai.tts.qwen.lm.vulkan,
+  mormot.ai.tts.qwen.lm,
   mormot.ai.tts.qwen,
   test.tts.qwen.ref;
 
