@@ -79,8 +79,8 @@ type
   protected
     fFile: TSafeTensorsFile;
     fOptions: TQwenTalkerOptions;
-    fOwnCpu: TInferCpuFastBackend;
-    fCpu: TInferCpuFastBackend;
+    fOwnCpu, fOwnHeads: TInferCpuFastBackend;
+    fCpu, fHeadCpu: TInferCpuFastBackend;
     fVulkan: TQwenVulkan;
     fConfig: TDocVariantData;
     fTokenizer: TBpeTokenizer;
@@ -229,6 +229,10 @@ begin
 end;
 
 
+const
+  /// the CPU threads of the heads next to a GPU
+  QWEN_HEAD_THREADS = 8;
+
 { TQwenTalker }
 
 constructor TQwenTalker.Create(const aSnapshot: TFileName;
@@ -275,16 +279,22 @@ begin
   fImEnd := fTokenizer.TokenId('<|im_end|>');
   if (fImStart < 0) or (fImEnd < 0) then
     EQwenTalker.RaiseUtf8('%: no <|im_start|> / <|im_end|> token', [self]);
-  // the CPU backend: the one of the GPU if any (a single thread pool)
   if aOptions.Device = qdVulkan then
   begin
+    // the CPU backend of the GPU: the weight conversion, the text projection
     fVulkan := TQwenVulkan.Create(aOptions.Threads);
     fCpu := fVulkan.Backend;
+    // the heads: small products on a few threads of their own - the Vulkan
+    // backend would send each one to the GPU and wait (16 per frame), and all
+    // the cores would compete with the 12 Hz decoder
+    fOwnHeads := TInferCpuFastBackend.Create(QWEN_HEAD_THREADS);
+    fHeadCpu := fOwnHeads;
   end
   else
   begin
     fOwnCpu := TInferCpuFastBackend.Create(aOptions.Threads);
     fCpu := fOwnCpu;
+    fHeadCpu := fCpu;
   end;
   fFile := TSafeTensorsFile.Create(folder + 'model.safetensors');
   fTextEmb := fFile.Tensor('talker.model.text_embedding.weight');
@@ -321,10 +331,10 @@ begin
   // the layers: mormot2-ai decoder stacks, converted on the pool of fCpu, run
   // on the CPU or on the GPU
   fTalker := TQwenLm.Create(QwenLmStack(folder, fCpu, 'talker_config',
-    'talker.model.', aOptions.DType), fTalkerH, fCpu, fVulkan, aOptions.KvF16);
+    'talker.model.', aOptions.DType), fTalkerH, fHeadCpu, fVulkan, aOptions.KvF16);
   fPredictor := TQwenLm.Create(QwenLmStack(folder, fCpu,
     'talker_config.code_predictor_config', 'talker.code_predictor.model.',
-    aOptions.DType), fPredH, fCpu, fVulkan, aOptions.KvF16);
+    aOptions.DType), fPredH, fHeadCpu, fVulkan, aOptions.KvF16);
   // tts_bos / tts_eos / tts_pad through the text projection
   SetLength(fTtsBos, fHidden);
   SetLength(fTtsEos, fHidden);
@@ -351,6 +361,7 @@ begin
   fFile.Free;
   fVulkan.Free;
   fOwnCpu.Free;
+  fOwnHeads.Free;
   inherited Destroy;
 end;
 
