@@ -41,14 +41,6 @@ uses
 type
   EQwenTalker = class(ESynException);
 
-  /// the Qwen text tokenizer (Qwen2Tokenizer) from vocab.json, merges.txt and
-  // the added tokens of tokenizer_config.json: the TTS model has no
-  // tokenizer.json, the file TBpeTokenizer.Create reads
-  TQwenTokenizer = class(TBpeTokenizer)
-  public
-    constructor CreateFromFolder(const aFolder: TFileName);
-  end;
-
   /// where the talker and the code predictor run
   TQwenDevice = (
     qdCpu,
@@ -92,7 +84,7 @@ type
     fCpu: TInferCpuFastBackend;
     fVulkan: TQwenVulkan;
     fConfig: TDocVariantData;
-    fTokenizer: TQwenTokenizer;
+    fTokenizer: TBpeTokenizer;
     fImStart, fImEnd: integer;
     fTtsBosId, fTtsEosId, fTtsPadId: integer;
     fCodecBos, fCodecEos, fCodecPad, fThink, fNoThink, fThinkBos, fThinkEos: integer;
@@ -144,7 +136,7 @@ type
     function NextFrame(aCodes: PIntegerArray): boolean;
     /// the names of the voices (spk_id of config.json)
     function Speakers: TRawUtf8DynArray;
-    property Tokenizer: TQwenTokenizer
+    property Tokenizer: TBpeTokenizer
       read fTokenizer;
     property Options: TQwenTalkerOptions
       read fOptions;
@@ -239,76 +231,6 @@ begin
 end;
 
 
-{ TQwenTokenizer }
-
-constructor TQwenTokenizer.CreateFromFolder(const aFolder: TFileName);
-var
-  vocab, cfg: TDocVariantData;
-  added: PDocVariantData;
-  texts, a, b, addedText: TRawUtf8DynArray;
-  addedId: TIntegerDynArray;
-  merges, line: RawUtf8;
-  i, n, id, p, q, sp: PtrInt;
-begin
-  // no inherited Create: the one of TBpeTokenizer reads a tokenizer.json, the
-  // one of TInferTokenizer does nothing more than TObject.Create
-  if not vocab.InitJsonFromFile(aFolder + 'vocab.json', JSON_FAST) then
-    EQwenTalker.RaiseUtf8('%: cannot read %vocab.json', [self, aFolder]);
-  SetLength(texts, vocab.Count);
-  for i := 0 to vocab.Count - 1 do
-  begin
-    id := VariantToIntegerDef(vocab.Values[i], -1);
-    if (id < 0) or (id >= vocab.Count) or (texts[id] <> '') then
-      EQwenTalker.RaiseUtf8('%: vocab id % of "%" invalid or used twice',
-        [self, id, vocab.Names[i]]);
-    texts[id] := vocab.Names[i];
-  end;
-  // merges.txt: one "a b" pair per line, after an optional "#version"
-  merges := StringFromFile(aFolder + 'merges.txt');
-  if merges = '' then
-    EQwenTalker.RaiseUtf8('%: cannot read %merges.txt', [self, aFolder]);
-  n := 0;
-  p := 1;
-  while p <= system.length(merges) do
-  begin
-    q := PosEx(#10, merges, p);
-    if q = 0 then
-      q := system.length(merges) + 1;
-    line := copy(merges, p, q - p);
-    p := q + 1;
-    if (line <> '') and (line[system.length(line)] = #13) then
-      SetLength(line, system.length(line) - 1);
-    if (line = '') or IdemPChar(pointer(line), '#VERSION') then
-      continue;
-    sp := PosEx(' ', line);
-    if (sp <= 1) or (sp = system.length(line)) then
-      EQwenTalker.RaiseUtf8('%: merge "%" is not "a b"', [self, line]);
-    if n = system.length(a) then
-    begin
-      SetLength(a, n * 2 + 1024);
-      SetLength(b, n * 2 + 1024);
-    end;
-    a[n] := copy(line, 1, sp - 1);
-    b[n] := copy(line, sp + 1, maxInt);
-    inc(n);
-  end;
-  SetLength(a, n);
-  SetLength(b, n);
-  // the special tokens: added_tokens_decoder {"151643": {"content": ...}}
-  if not cfg.InitJsonFromFile(aFolder + 'tokenizer_config.json', JSON_FAST) then
-    EQwenTalker.RaiseUtf8('%: cannot read %tokenizer_config.json', [self, aFolder]);
-  added := cfg.O['added_tokens_decoder'];
-  SetLength(addedText, added^.Count);
-  SetLength(addedId, added^.Count);
-  for i := 0 to added^.Count - 1 do
-  begin
-    addedId[i] := Utf8ToInteger(added^.Names[i], -1);
-    addedText[i] := _Safe(added^.Values[i])^.U['content'];
-  end;
-  Build(texts, a, b, addedText, addedId);
-end;
-
-
 { TQwenTalker }
 
 constructor TQwenTalker.Create(const aSnapshot: TFileName;
@@ -348,7 +270,9 @@ begin
      (pc^.I['hidden_size'] <> fHidden) or (fCodecEos <= 0) or (fVocab <= 0) then
     EQwenTalker.RaiseUtf8('%: unexpected configuration in %config.json', [self, folder]);
   fSampling := QwenSamplingFromConfig(folder + 'generation_config.json');
-  fTokenizer := TQwenTokenizer.CreateFromFolder(folder);
+  // the TTS model ships vocab.json + merges.txt, no tokenizer.json
+  fTokenizer := TBpeTokenizer.CreateFromVocabMerges(folder + 'vocab.json',
+    folder + 'merges.txt');
   fImStart := fTokenizer.TokenId('<|im_start|>');
   fImEnd := fTokenizer.TokenId('<|im_end|>');
   if (fImStart < 0) or (fImEnd < 0) then
