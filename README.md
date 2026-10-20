@@ -42,7 +42,7 @@ Against PyTorch:
 
 - Delphi with mORMot 2 in the library path, as mORMot 2 recommends. Built
   and tested with Delphi 13 (Win64) only.
-- mormot2-ai: the git submodule `external/mormot2-ai`, pinned at `5b30ded`
+- mormot2-ai: the git submodule `external/mormot2-ai`, pinned at `21aa4bb`
   (`git submodule update --init`).
 - Optional: a Vulkan GPU (1.0 or later) with ~1 GB of free memory; without
   one, everything runs on the CPU.
@@ -170,22 +170,41 @@ float32 (within 2e-4), in Q8_0, and on Vulkan in Q8_0.
 
 ## Notes from the port
 
-What mormot2-ai did not cover yet, and how this code works around it:
-- `InferRowToF32` has no BF16: `QwenRowToF32` widens BF16 and F16 rows.
-- `TBpeTokenizer` reads `tokenizer.json` or GGUF only; the model ships
-  `vocab.json` + `merges.txt`: `TQwenTokenizer.CreateFromFolder` feeds the
-  same `Build`.
-- The forward passes take token ids: `TQwenLm` takes embedding rows, on the
-  CPU and on Vulkan, repeating the push constant records of mormot2-ai's
-  shaders.
-- A half-float K/V cache drifts in autoregressive loops (2.3e-2 against
-  2.6e-5 in float32 over 15 code predictor steps): the K/V cache is float32.
-- A `TInferThreadPool` work item must not allocate on the heap (3.5 s
-  instead of 0.6 s with 22 threads queued on the memory manager): the Q8_0
-  conversion works in a stack buffer.
-- The Vulkan backend keeps device weights keyed by their host address:
-  weights freed and reallocated at the same address would be served stale,
-  so free them only with the backend, or after `ClearWeights`.
+What the port needed from mormot2-ai, reported as its backlog item B14 and
+taken up on 2026-10-19:
+- BF16 and F16 rows: `InferRowToF32` widens them.
+- The `vocab.json` + `merges.txt` of the model (no `tokenizer.json`):
+  `TBpeTokenizer.CreateFromVocabMerges`, the same ids as transformers.
+- Embedding rows instead of token ids, and one stack of a larger checkpoint:
+  `TDecoderModel.ForwardEmbeds` and `CreateStack` (see below why `TQwenLm`
+  does not use them yet).
+- A half-float K/V cache drifts in loops that feed floats back (2.3e-2
+  against 2.6e-5 in float32 over 15 code predictor steps): the K/V cache is
+  float32, as the `KvF16` docs of mormot2-ai now say.
+- Device weights are keyed by their host address: weights freed and
+  reallocated at the same address were served stale. `ForgetWeights`: a GPU
+  stack forgets its weights when it is freed.
+- A `TInferThreadPool` work item that allocates on the heap queues the
+  threads on Delphi's memory manager (3.5 s instead of 0.6 s with 22
+  threads): the Q8_0 conversion works in a stack buffer. `RunWorkers` now
+  gives a worker index for a buffer per thread; the 32 floats of a block do
+  not need it.
+
+Still ours, both passes of `TQwenLm`:
+- On the CPU, `CreateStack` + `ForwardEmbeds` (the final norm read through
+  `aOnState`, our heads applied to it) gave the same states, within 1.8e-4
+  of PyTorch, but `CreateStack` converts the weights on one thread: both
+  stacks loaded in 6.1 s in Q8_0 against 0.56 s with the pool of
+  `TQwenLmWeights` (0.61 s against 0.26 s in float32), and a Q8_0 frame
+  took about 10% longer. `TQwenLmCpu` stays until the conversion is
+  parallel.
+- On the GPU (`mormot.ai.tts.qwen.lm.vulkan`), a device pass of mormot2-ai
+  returns the logits of one head; the talker needs the normed state of its
+  last row (the input of the code predictor) and the code predictor a
+  different head at each step. The pass repeats the push constant records
+  of mormot2-ai's shaders, which are private to its units: they grew in
+  21aa4bb (`Window`, `Norm`, `Rope`), and the pass computed wrong values
+  without any error until its records followed.
 
 ## Kokoro-82M
 
