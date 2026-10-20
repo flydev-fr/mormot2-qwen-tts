@@ -475,7 +475,8 @@ begin
   begin
     if (aIds[r] < 0) or (aIds[r] >= fTextEmb^.Shape[0]) then
       EQwenTalker.RaiseUtf8('%: text token % out of range', [self, aIds[r]]);
-    QwenRowToF32(fTextEmb^, aIds[r], fTextHidden, @e[r * fTextHidden]);
+    InferRowToF32(fTextEmb^.Data, fTextEmb^.DType, aIds[r], fTextHidden,
+      @e[r * fTextHidden]);
   end;
   fCpu.Linear(pointer(e), n, fTextHidden, InferWeight(pointer(fFc1W), idtF32),
     fTextHidden, pointer(fFc1B), pointer(h));

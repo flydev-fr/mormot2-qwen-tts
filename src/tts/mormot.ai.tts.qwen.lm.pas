@@ -152,11 +152,6 @@ type
       aLogits, aHidden: PSingleArray); override;
   end;
 
-/// row aRow of a F32, F16 or BF16 matrix in float32 (without loss);
-// InferRowToF32 of mormot2-ai does not read BF16
-procedure QwenRowToF32(const aTensor: TInferTensor; aRow, aCols: PtrInt;
-  aDst: PSingleArray);
-
 /// the tensor aName [aRows][aCols] in float32
 function QwenWiden(aFile: TSafeTensorsFile; const aName: RawUtf8;
   aRows, aCols: PtrInt): TSingleDynArray;
@@ -166,34 +161,6 @@ procedure QwenGrow(var a: TSingleDynArray; aCount: PtrInt);
 
 
 implementation
-
-procedure QwenRowToF32(const aTensor: TInferTensor; aRow, aCols: PtrInt;
-  aDst: PSingleArray);
-var
-  i: PtrInt;
-  w: PWordArray;
-begin
-  case aTensor.DType of
-    idtF32:
-      MoveFast(PSingleArray(aTensor.Data)^[aRow * aCols], aDst^[0],
-        aCols * SizeOf(single));
-    idtBF16:
-      begin
-        w := @PWordArray(aTensor.Data)^[aRow * aCols];
-        for i := 0 to aCols - 1 do
-          PCardinalArray(aDst)^[i] := cardinal(w^[i]) shl 16;
-      end;
-    idtF16:
-      begin
-        w := @PWordArray(aTensor.Data)^[aRow * aCols];
-        for i := 0 to aCols - 1 do
-          aDst^[i] := InferHalfToSingle(w^[i]);
-      end;
-  else
-    EQwenLm.RaiseUtf8('QwenRowToF32: % is %', [aTensor.Name,
-      INFER_DTYPE_NAME[aTensor.DType]]);
-  end;
-end;
 
 function QwenWiden(aFile: TSafeTensorsFile; const aName: RawUtf8;
   aRows, aCols: PtrInt): TSingleDynArray;
@@ -207,7 +174,7 @@ begin
       [aFile, aName, InferShapeText(t^.Shape), aRows, aCols]);
   SetLength(result, aRows * aCols);
   for r := 0 to aRows - 1 do
-    QwenRowToF32(t^, r, aCols, @result[r * aCols]);
+    InferRowToF32(t^.Data, t^.DType, r, aCols, @result[r * aCols]);
 end;
 
 procedure QwenGrow(var a: TSingleDynArray; aCount: PtrInt);
@@ -295,12 +262,14 @@ begin
       dst := @fJobData^[r * fJobRowBytes];
       for b := 0 to blocks - 1 do
       begin
-        QwenRowToF32(fJobTensor^, r * blocks + b, 32, @block);
+        InferRowToF32(fJobTensor^.Data, fJobTensor^.DType, r * blocks + b, 32,
+          @block);
         InferQuantizeRowQ8_0Ref(@block, 32, @dst^[b]);
       end;
     end
     else
-      QwenRowToF32(fJobTensor^, r, fJobCols, @fJobData^[r * fJobRowBytes]);
+      InferRowToF32(fJobTensor^.Data, fJobTensor^.DType, r, fJobCols,
+        @fJobData^[r * fJobRowBytes]);
     inc(r);
   end;
 end;
