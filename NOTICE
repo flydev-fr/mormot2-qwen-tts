@@ -10,12 +10,12 @@ mORMot 2  (Synopse Informatique - Arnaud Bouchez)
 
 mormot2-ai - mormot.ai.* extension  (LandrixAI - Landrix / Sven Harazim)
   The native inference engine this work is built on: safetensors loader, BPE
-  tokenizer, AVX2 kernels, thread pool, sampler, Vulkan device and shaders;
-  its test unit test.infer.ref reads the dataset of tests/data/infer-ref.
-  Used as the git submodule external/mormot2-ai, not copied. The push
-  constant records of its Vulkan shaders are repeated in
-  src/tts/mormot.ai.tts.qwen.lm.vulkan.pas (they are private to its units),
-  and tools/tts/vk/convgemm.comp follows the tiling of its gemm8.comp.
+  tokenizer, AVX2 kernels, thread pool, sampler, the decoder that runs the
+  talker and the code predictor on the CPU or the GPU (TDecoderModel,
+  TQwen3Vulkan), Vulkan device and shaders; its test unit test.infer.ref
+  reads the dataset of tests/data/infer-ref. Used as the git submodule
+  external/mormot2-ai, not copied; tools/tts/vk/convgemm.comp follows the
+  tiling of its gemm8.comp.
   License: MPL 1.1 / GPL 2.0 / LGPL 2.1 (three-license, follows mORMot).
   https://github.com/landrix/mormot2-ai
 

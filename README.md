@@ -42,7 +42,7 @@ Against PyTorch:
 
 - Delphi with mORMot 2 in the library path, as mORMot 2 recommends. Built
   and tested with Delphi 13 (Win64) only.
-- mormot2-ai: the git submodule `external/mormot2-ai`, pinned at `21aa4bb`
+- mormot2-ai: the git submodule `external/mormot2-ai`, pinned at `279f06a`
   (`git submodule update --init`).
 - Optional: a Vulkan GPU (1.0 or later) with ~1 GB of free memory; without
   one, everything runs on the CPU.
@@ -108,8 +108,7 @@ and `src/infer`.
 |---|---|
 | `mormot.ai.tts.qwen` | `TQwenTts`: settings, text chunks, the talker on its own thread feeding the decoder, streaming, measures |
 | `mormot.ai.tts.qwen.talker` | the prompt (as `qwen_tts`), the talker (Qwen3, 28 layers) which predicts the first code of each frame, the code predictor (Qwen3, 5 layers) which derives the 15 others, the sampling of `generation_config.json` |
-| `mormot.ai.tts.qwen.lm` | a Qwen3 stack fed with embeddings: weights in float32 or Q8_0 (the bytes ggml writes), CPU computation |
-| `mormot.ai.tts.qwen.lm.vulkan` | the same stack on the GPU, after `TQwen3Vulkan.Chunk` of mormot2-ai: one recorded pass per frame |
+| `mormot.ai.tts.qwen.lm` | the two Qwen3 stacks fed with embeddings: mormot2-ai decoder stacks (`CreateStack`, `ForwardEmbeds`) on the CPU or the GPU (`TQwen3Vulkan`), our heads on the CPU, the Vulkan device shared with the decoder |
 | `mormot.ai.tts.qwen.codec` | the 12 Hz decoder, frame by frame and causal: 16 codes -> 1920 samples at 24 kHz |
 | `mormot.ai.tts.qwen.codec.vulkan` | its heavy back part (upsampling, ConvNeXt, dilated convolutions, SnakeBeta) on the GPU |
 | `mormot.ai.tts.wave` | float to PCM 16, WAV files, the streamed Windows output |
@@ -171,40 +170,43 @@ float32 (within 2e-4), in Q8_0, and on Vulkan in Q8_0.
 ## Notes from the port
 
 What the port needed from mormot2-ai, reported as its backlog item B14 and
-taken up on 2026-10-19:
+its issue #1, all taken up (2026-10-19 and 2026-10-20):
 - BF16 and F16 rows: `InferRowToF32` widens them.
 - The `vocab.json` + `merges.txt` of the model (no `tokenizer.json`):
   `TBpeTokenizer.CreateFromVocabMerges`, the same ids as transformers.
-- Embedding rows instead of token ids, and one stack of a larger checkpoint:
-  `TDecoderModel.ForwardEmbeds` and `CreateStack` (see below why `TQwenLm`
-  does not use them yet).
+- Embedding rows instead of token ids, one stack of a larger checkpoint
+  without embedding nor head, and the normed state of the last row, on the
+  CPU and on the GPU: `TDecoderModel.CreateStack` and `ForwardEmbeds`
+  (`aNormed`). Both stacks run on them; the heads are ours (the code
+  predictor applies a different one at each step).
 - A half-float K/V cache drifts in loops that feed floats back (2.3e-2
   against 2.6e-5 in float32 over 15 code predictor steps): the K/V cache is
   float32, as the `KvF16` docs of mormot2-ai now say.
 - Device weights are keyed by their host address: weights freed and
-  reallocated at the same address were served stale. `ForgetWeights`: a GPU
-  stack forgets its weights when it is freed.
+  reallocated at the same address were served stale. `ForgetWeights`: a
+  model or a device forgets its weights when it is freed.
+- The weights converted on one thread at load (Q8_0: both stacks loaded
+  and a prefill in 6.1 s): the conversion now runs on the pool of the
+  backend (0.46 s).
 - A `TInferThreadPool` work item that allocates on the heap queues the
   threads on Delphi's memory manager (3.5 s instead of 0.6 s with 22
-  threads): the Q8_0 conversion works in a stack buffer. `RunWorkers` now
-  gives a worker index for a buffer per thread; the 32 floats of a block do
-  not need it.
+  threads): the Q8_0 conversion of the heads works in a stack buffer.
 
-Still ours, both passes of `TQwenLm`:
-- On the CPU, `CreateStack` + `ForwardEmbeds` (the final norm read through
-  `aOnState`, our heads applied to it) gave the same states, within 1.8e-4
-  of PyTorch, but `CreateStack` converts the weights on one thread: both
-  stacks loaded in 6.1 s in Q8_0 against 0.56 s with the pool of
-  `TQwenLmWeights` (0.61 s against 0.26 s in float32), and a Q8_0 frame
-  took about 10% longer. `TQwenLmCpu` stays until the conversion is
-  parallel.
-- On the GPU (`mormot.ai.tts.qwen.lm.vulkan`), a device pass of mormot2-ai
-  returns the logits of one head; the talker needs the normed state of its
-  last row (the input of the code predictor) and the code predictor a
-  different head at each step. The pass repeats the push constant records
-  of mormot2-ai's shaders, which are private to its units: they grew in
-  21aa4bb (`Window`, `Norm`, `Rope`), and the pass computed wrong values
-  without any error until its records followed.
+This replaced our own GPU pass, which repeated the push constant records of
+mormot2-ai's shaders (private to its units): they grew in 21aa4bb, and the
+pass computed wrong values without any error until its records followed.
+
+Two things to know about the heads next to a GPU:
+- The Vulkan backend sends every product it can to the GPU and waits for
+  it: the 16 small head products of a frame cost about 2 ms that way. They run on a
+  CPU backend of their own instead.
+- With all the cores, they compete with the 12 Hz decoder running at the
+  same time (the engine dropped from x5.8 to x5.0); on 8 threads, x5.5.
+
+Measured against the former pass (same machine, alternated runs): a talker
+frame on the GPU 11.3 ms against 10.9 (the heads on the CPU), the engine x5.5
+against x5.8 with the same first sound; on the CPU, the same speed per frame
+and the same load in Q8_0, 0.16 s more in float32.
 
 ## Kokoro-82M
 
