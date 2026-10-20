@@ -78,10 +78,9 @@ type
   public
     /// send the weights of aWeights to the GPU of aVulkan (neither is owned);
     // aKvF16: the K/V cache in half floats
-    // - the backend keeps the device copies keyed by their host address until
-    // aVulkan is freed or aVulkan.Backend.ClearWeights: free aWeights only
-    // after one of them, or other weights reusing the addresses would be
-    // served stale
+    // - the backend keeps the device copies keyed by their host address;
+    // Destroy forgets them (TQwenLmWeights.ForgetWeights): free this stack
+    // before aWeights and aVulkan
     constructor CreateVulkan(aWeights: TQwenLmWeights; aVulkan: TQwenVulkan;
       aKvF16: boolean = true);
     destructor Destroy; override;
@@ -217,6 +216,8 @@ destructor TQwenLmVulkan.Destroy;
 var
   i: PtrInt;
 begin
+  if fVulkan <> nil then
+    fWeights.ForgetWeights(fVulkan.fBackend);
   for i := 0 to high(fKeys) do
   begin
     fKeys[i].Free;

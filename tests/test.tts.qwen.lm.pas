@@ -247,11 +247,7 @@ begin
         lm.Free;
       end;
     finally
-      // the backend keeps the device weights by address: forget them before
-      // the memory is reused by the predictor
-      if aVulkan <> nil then
-        aVulkan.Backend.ClearWeights;
-      w.Free;
+      w.Free; // TQwenLmVulkan forgot its device copies when freed
     end;
     // the code predictor: 2 rows, then one per group, each with its head
     timer.Start;
@@ -297,8 +293,6 @@ begin
         lm.Free;
       end;
     finally
-      if aVulkan <> nil then
-        aVulkan.Backend.ClearWeights;
       w.Free;
     end;
   finally

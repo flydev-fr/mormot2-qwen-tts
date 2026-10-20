@@ -75,6 +75,10 @@ type
       aRows: PtrInt; aPool: TInferThreadPool = nil): PtrInt;
     /// the crc32c of the matrices, in their load order (tests)
     function Digest: cardinal;
+    /// aBackend.ForgetWeights for every matrix and norm: a GPU backend drops
+    // its copies, which would otherwise be served to other weights reusing
+    // these addresses
+    procedure ForgetWeights(aBackend: TInferBackend);
     function LayerCount: PtrInt;
     function Layer(aIndex: PtrInt): PQwenLmLayer;
     function OutputCount: PtrInt;
@@ -331,6 +335,28 @@ begin
   result := 0;
   for i := 0 to fStoreCount - 1 do
     result := crc32c(result, pointer(fStore[i]), system.length(fStore[i]));
+end;
+
+procedure TQwenLmWeights.ForgetWeights(aBackend: TInferBackend);
+
+  procedure Forget(const v: TSingleDynArray);
+  begin
+    InferForgetBytes(aBackend, pointer(v), system.length(v) * SizeOf(single));
+  end;
+
+var
+  i: PtrInt;
+begin
+  for i := 0 to fStoreCount - 1 do
+    InferForgetBytes(aBackend, pointer(fStore[i]), system.length(fStore[i]));
+  for i := 0 to high(fLayers) do
+  begin
+    Forget(fLayers[i].InNorm);
+    Forget(fLayers[i].PostNorm);
+    Forget(fLayers[i].QNorm);
+    Forget(fLayers[i].KNorm);
+  end;
+  Forget(fNorm);
 end;
 
 function TQwenLmWeights.LayerCount: PtrInt;
