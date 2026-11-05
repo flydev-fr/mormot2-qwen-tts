@@ -3,6 +3,16 @@ mormot2-qwen-tts
 
 THIRD-PARTY COMPONENTS AND REFERENCES
 
+Qwen3 text chat models (Alibaba Cloud - Qwen team)
+  The local chat demos use Qwen3-14B or Qwen3-4B-Instruct-2507, quantized to
+  Q4_K_M by Unsloth. Weights are downloaded separately, never in the portable
+  ZIP. Revisions and SHA-256 values are pinned in tools/chat/download-model.ps1.
+  Model license: Apache-2.0.
+  https://huggingface.co/Qwen/Qwen3-14B
+  https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507
+  https://huggingface.co/unsloth/Qwen3-14B-GGUF
+  https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF
+
 mORMot 2  (Synopse Informatique - Arnaud Bouchez)
   Runtime foundation: JSON, RTTI, variants, threads, logging, tests.
   License: MPL 1.1 / GPL 2.0 / LGPL 2.1 (three-license).

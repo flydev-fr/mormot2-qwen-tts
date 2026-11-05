@@ -42,7 +42,7 @@ Against PyTorch:
 
 - Delphi with mORMot 2 in the library path, as mORMot 2 recommends. Built
   and tested with Delphi 13 (Win64) only.
-- mormot2-ai: the git submodule `external/mormot2-ai`, pinned at `279f06a`
+- mormot2-ai: the git submodule `external/mormot2-ai`, pinned at `fff337d`
   (`git submodule update --init`).
 - Optional: a Vulkan GPU (1.0 or later) with ~1 GB of free memory; without
   one, everything runs on the CPU.
@@ -71,6 +71,103 @@ Voices: serena, vivian, uncle_fu, ryan, aiden, ono_anna, sohee, eric, dylan.
 `/temperature` (default 0.9): lower gives a calmer, steadier delivery, higher
 a more expressive one. `/seed` fixes the voice of a text. `/cpu`, `/f32` and
 `/cpudecoder` choose where it runs.
+
+## Local text chat (AMD Vulkan or CPU)
+
+`demos/chat/localchat.dproj` builds `bin/Win64-Release/localchat.exe` in
+Release with Delphi 13 (Debug is also available). It keeps the model loaded,
+streams each answer and remembers the conversation.
+Vulkan is the default; `/cpu` selects CPU inference explicitly.
+The Vulkan device name is printed at startup.
+Loading and each response report elapsed time, automatically in milliseconds,
+seconds or minutes. The response rate is an overall rate including prompt
+processing and streaming; the throughput benchmark below times decode separately.
+
+```powershell
+.\bin\Win64-Release\localchat.exe
+.\bin\Win64-Release\localchat.exe /cpu
+.\bin\Win64-Release\localchat.exe /vulkan /prompt "Bonjour, presente-toi."
+```
+
+Use `/exit` to quit or `/reset` to clear the conversation. `/tokens` limits
+each answer (default 512); `/context` limits the conversation (default 4096).
+`/help` lists the options. `/model` accepts a GGUF file or a Hugging Face folder.
+
+The default model is [Qwen3-14B Q4_K_M from Unsloth](https://huggingface.co/unsloth/Qwen3-14B-GGUF),
+stored at `bin/models/Qwen3-14B-Q4_K_M.gguf` (9,001,753,984 bytes, ignored by Git).
+Download revision `a04a82c4739b3ef5fa6da7d10261db2c67dd1985`;
+SHA-256: `5eaa0870bd81ed3b58a630a271234cfa604e43ffb3a19cd68e54a80dd9d52a66`.
+Reasoning is disabled for the standard Qwen3 chat template; non-thinking
+Instruct-2507 checkpoints keep their normal assistant prefix.
+
+The smaller [Qwen3-4B-Instruct-2507 Q4_K_M](https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF)
+is also available via `/model bin/models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf`
+(2,497,281,120 bytes). Its download revision is `a06e946bb6b655725eafa393f4a9745d460374c9`;
+SHA-256: `3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597`.
+Inference runs locally and requires no API key or server.
+
+Download or verify the pinned model with:
+
+```powershell
+.\tools\chat\download-model.ps1
+.\tools\chat\download-model.ps1 -VerifyOnly
+.\tools\chat\download-model.ps1 -Model 4B
+```
+
+Downloads resume from a `.download` file and only become the final GGUF after
+the expected size and SHA-256 match.
+
+### Portable package for another PC
+
+After building both demos in Win64 Release:
+
+```powershell
+.\tools\chat\package-portable.ps1
+```
+
+This creates a fresh ZIP under `bin/portable/` with the two executables,
+double-click launchers, model downloader, benchmark script, reference results,
+source snapshots and license notices. The 9 GB model is downloaded separately.
+On the other Windows x64 PC, extract everything, run `Download-Model.cmd`,
+then `Chat-GPU.cmd`, `Chat-CPU.cmd` or `Benchmark.cmd`. CPU-only and GPU-only
+benchmark launchers are also provided. No Delphi, Python or API key is needed.
+The scripts work with Windows PowerShell 5.1 and the curl shipped with Windows.
+Send back the small `results/date-time` folder to compare the PCs.
+
+### Throughput benchmark
+
+Build `demos/chat/llmbench.dproj` in Win64 Release, then run:
+
+```powershell
+.\tools\chat\benchmark.ps1
+# One model or backend, with different token counts:
+.\tools\chat\benchmark.ps1 -Model bin/models/Qwen3-14B-Q4_K_M.gguf -Backend vulkan -PromptTokens 512 -GeneratedTokens 128 -Runs 3
+```
+
+The benchmark is adapted from mormot2-ai's `demos/infer/llm-bench.lpr` for
+the current backend interfaces. Both CPU and GPU paths warm up before timing.
+It measures processing a fixed prompt (prefill) and 128 greedy decode steps,
+ignoring stop tokens; this is throughput, not answer quality or total chat
+latency. Model loading and GPU uploads are excluded from the measured rates.
+The script writes each raw log, `results.csv`, median `summary.csv` and
+`system-info.json` under `build/benchmarks/` (or `results/` in the portable
+launchers). Hardware information includes CPU, GPU, driver and available RAM
+metadata, plus the benchmark executable hash and settings; no computer or user
+name is recorded.
+
+Measured on 2026-10-26, Ryzen 9 9950X3D (22 CPU threads), Radeon RX 9060 XT
+16 GB, Delphi 13 Win64 Release. Median of three runs with 512 prompt tokens
+and 128 generated tokens, after warm-up; both models use Q4_K_M GGUF weights:
+
+| Model | Backend | Prefill (tokens/s) | Decode (tokens/s) |
+|---|---|---:|---:|
+| Qwen3-4B-Instruct-2507 | CPU | 105.81 | 18.09 |
+| Qwen3-4B-Instruct-2507 | Vulkan | 852.45 | 68.58 |
+| Qwen3-14B | CPU | 32.27 | 6.70 |
+| Qwen3-14B | Vulkan | 250.00 | 22.94 |
+
+The 14B GPU decode measurements ranged from 22.93 to 22.95 tokens/s. These
+rates describe the fixed synthetic benchmark, not a quality evaluation.
 
 ## In code
 

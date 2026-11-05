@@ -1,6 +1,7 @@
 # build outputs
 bin/
 build/
+/results/
 *.dcu
 *.exe
 *.rsm
